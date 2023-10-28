@@ -28,6 +28,16 @@ struct Package {
     dest: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct Move {
+    w: u32,
+    t: &'static str,
+    n1: &'static str,
+    p1: &'static str,
+    n2: &'static str,
+    p2: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Graph {
     nodes: Vec<Node>,
@@ -63,13 +73,15 @@ impl Graph {
     // there must be at least one train with enough capacity
     // there is always a path to the package
     // there is always a path to package destination
-    fn start(&self) {
+    // there is no negative weights
+    fn start(&self) -> Vec<Vec<Move>> {
+        let mut result: Vec<Vec<Move>> = vec![];
         for package in self.packages.clone().into_iter() {
             let mut train_choice = None;
             let mut shortest_path: Vec<Node> = Vec::new();
             let mut shortest_duration: Vec<u32> = vec![u32::MAX];
 
-            // this is bad, but problem for future me
+            // this does not scale, but problem for future me
             for train in self.trains.clone().into_iter() {
                 if train.capacity < package.weight {
                     continue;
@@ -83,7 +95,7 @@ impl Graph {
                             shortest_path = path;
                         }
                     },
-                    Err(err) => println!("{} :(", err),
+                    Err(err) => panic!("{} :(", err),
                 }
             }
 
@@ -92,14 +104,16 @@ impl Graph {
                     shortest_path.append(&mut path);
                     shortest_duration.append(&mut duration);
                 },
-                Err(err) => println!("{} :(", err),
+                Err(err) => panic!("{} :(", err),
             }
 
-            self.print_moves(train_choice.unwrap(), shortest_path, package, shortest_duration);
+            let moves = self.get_moves(train_choice.unwrap(), shortest_path, package, shortest_duration);
+            result.push(moves);
         }
+        result
     }
 
-    fn print_moves(&self, train: Train, path: Vec<Node>, package: Package, duration: Vec<u32>) {
+    fn get_moves(&self, train: Train, path: Vec<Node>, package: Package, duration: Vec<u32>) -> Vec<Move> {
         let mut w = 0;
         let t = train.name;
         let mut n1 = train.start;
@@ -107,36 +121,54 @@ impl Graph {
         let mut n2 = path[0].name;
         let mut p2 = "";
 
+        // edge case
+        if n1 == package.start {
+            p1 = package.name;
+        }
+
         // source
-        println!("W={}, T={}, N1={}, P1=[{}], N2={}, P2=[{}]", w, t, n1, p1, n2, p2);
+        let mut moves: Vec<Move> = vec![Move {
+            w,
+            t,
+            n1,
+            p1,
+            n2,
+            p2,
+        }];
 
         // travelling
         for i in 0..path.len() - 1 {
             w += duration[i];
 
             n1 = path[i].name;
-            if n1 == package.start {
-                p1 = package.name;
-            } else {
-                p1 = "";
+            match n1 == package.start {
+                true => p1 = package.name,
+                false => p1 = "",
             }
 
             n2 = path[i + 1].name;
-            if n2 == package.dest {
-                p2 = package.name;
-            } else {
-                p2 = "";
+            match n2 == package.dest {
+                true => p2 = package.name,
+                false => p2 = "",
             }
-
-            println!("W={}, T={}, N1={}, P1=[{}], N2={}, P2=[{}]", w, t, n1, p1, n2, p2);
+            moves.push(Move {
+                w,
+                t,
+                n1,
+                p1,
+                n2,
+                p2,
+            });
         }
+
+        moves
     }
 
     fn get_names(&self) -> Vec<&str> {
         self.nodes.iter().map(|m| m.name).collect::<Vec<&str>>()
     }
 
-    // tried with adj list, but didn't work as expected, so maybe later
+    // tried with adj list, but didn't work as expected
     fn create_adj_matrix(&self) -> Vec<Vec<u32>> {
         let edges = self.edges.clone();
         let names = self.get_names();
@@ -158,11 +190,11 @@ impl Graph {
         adj
     }
 
-    fn min_dist(dist: Vec<u32>, tset: Vec<bool>) -> usize {
+    fn min_dist(dist: Vec<u32>, seen: Vec<bool>) -> usize {
         let mut min = u32::MAX;
         let mut index: usize = 0;
         for (i, k) in dist.into_iter().enumerate() {
-            if !tset[i] && k <= min {
+            if !seen[i] && k <= min {
                 min = k;
                 index = i;
             }
@@ -296,6 +328,11 @@ fn main() {
             capacity: 6,
             start: "B",
         },
+        Train {
+            name: "Q2",
+            capacity: 6,
+            start: "C",
+        },
     ];
 
     let packages = vec![
@@ -305,9 +342,127 @@ fn main() {
             start: "A",
             dest: "C",
         },
+        Package {
+            name: "K2",
+            weight: 5,
+            start: "C",
+            dest: "A",
+        },
     ];
 
     graph.input(nodes, edges, trains, packages);
 
-    graph.start();
+    let result = graph.start();
+    for moves in result {
+        for m in moves {
+            println!("W={}, T={}, N1={}, P1=[{}], N2={}, P2=[{}]", m.w, m.t, m.n1, m.p1, m.n2, m.p2);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    fn setup(graph: &mut Graph) -> &Graph {
+        let nodes = vec![
+            Node {
+                name: "A"
+            },
+            Node {
+                name: "B"
+            },
+        ];
+
+        let edges = vec![
+            Edge {
+                name: "E1",
+                weight: 30,
+                from: "A",
+                to: "B",
+            },
+        ];
+
+        let trains = vec![
+            Train {
+                name: "Q1",
+                capacity: 2,
+                start: "B",
+            },
+        ];
+
+        let packages = vec![
+            Package {
+                name: "K1",
+                weight: 1,
+                start: "A",
+                dest: "B",
+            },
+        ];
+
+        graph.input(nodes, edges, trains, packages);
+
+        graph
+    }
+
+    #[test]
+    fn test_shortest_path() {
+        let mut graph = Graph::new();
+        setup(&mut graph);
+
+        let train_test = graph.trains[0].clone();
+        let package_test = graph.packages[0].clone();
+
+        let test = graph.shortest_path(train_test.start, package_test.start);
+        let test2 = graph.shortest_path(package_test.start, package_test.dest);
+
+        match test {
+            Ok((a, b)) => {
+                assert_eq!(a[0], Node { name: "A"});
+                assert_eq!(b[0], 30);
+            },
+            Err(err) => panic!("test failed -> {}", err),
+        }
+
+        match test2 {
+            Ok((a, b)) => {
+                assert_eq!(a[0], Node { name: "B"});
+                assert_eq!(b[0], 30);
+            },
+            Err(err) => panic!("test failed -> {}", err),
+        }
+    }
+
+    // technically should be an e2e test
+    #[test]
+    fn test_e2e() {
+        let mut graph = Graph::new();
+        setup(&mut graph);
+
+        let train_test = graph.trains[0].clone();
+        let package_test = graph.packages[0].clone();
+
+        let test = graph.start();
+        for moves in test {
+            assert_eq!(moves, vec![
+                Move {
+                    w: 0,
+                    t: "Q1",
+                    n1: "B",
+                    p1: "",
+                    n2: "A",
+                    p2: "",
+                },
+                Move {
+                    w: 30,
+                    t: "Q1",
+                    n1: "A",
+                    p1: "K1",
+                    n2: "B",
+                    p2: "K1",
+                },
+            ]);
+        }
+    }
 }
